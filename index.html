@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trombinoscope</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #efe6d6;
+      color: #2a2420;
+      font-family: "Segoe UI", sans-serif;
+    }
+    form {
+      width: min(420px, 100%);
+      background: #fffdf8;
+      border: 1px solid #e2d5c3;
+      border-radius: 16px;
+      padding: 28px 22px;
+    }
+    h1 {
+      font-family: Palatino, Georgia, serif;
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+    p { margin: 0 0 18px; color: #6f655c; line-height: 1.4; }
+    input {
+      width: 100%;
+      font: inherit;
+      font-size: 1.15rem;
+      padding: 14px 12px;
+      border: 1px solid #e2d5c3;
+      border-radius: 10px;
+      background: #fff;
+    }
+    button {
+      width: 100%;
+      margin-top: 12px;
+      font: inherit;
+      font-size: 1.15rem;
+      padding: 14px 12px;
+      border: 0;
+      border-radius: 10px;
+      background: #8c3a2f;
+      color: white;
+      cursor: pointer;
+    }
+    .erreur { min-height: 1.3em; margin: 10px 0 0; color: #8c3a2f; }
+  </style>
+</head>
+<body>
+  <form id="porte">
+    <h1>Trombinoscope</h1>
+    <p>Le mot de passe est dans le message WhatsApp.</p>
+    <input id="mot" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Mot de passe" aria-label="Mot de passe">
+    <button type="submit">Ouvrir</button>
+    <p class="erreur" id="erreur" role="status"></p>
+  </form>
+  <script>
+    const TOURS = 120000;
+    const CLE = "trombi-enfa-mot";
+    const champ = document.getElementById("mot");
+    const erreur = document.getElementById("erreur");
+    const bouton = document.querySelector("button");
+
+    async function montrer(html) {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      document.replaceChild(doc.documentElement, document.documentElement);
+      const scripts = [...document.querySelectorAll("script")];
+      for (const ancien of scripts) {
+        if (ancien.src) {
+          await new Promise((ok, ko) => {
+            const neuf = document.createElement("script");
+            neuf.src = ancien.src;
+            neuf.onload = () => ok();
+            neuf.onerror = () => ko(new Error("script"));
+            ancien.replaceWith(neuf);
+          });
+        } else {
+          (0, eval)(ancien.textContent);
+          ancien.remove();
+        }
+      }
+    }
+
+    async function charger() {
+      const reponse = await fetch("coffre.bin");
+      if (!reponse.ok) throw new Error("lien");
+      return new Uint8Array(await reponse.arrayBuffer());
+    }
+
+    async function dechiffrer(mot, brut) {
+      const sel = brut.slice(0, 16);
+      const iv = brut.slice(16, 28);
+      const secret = brut.slice(28);
+      const matiere = await crypto.subtle.importKey("raw", new TextEncoder().encode(mot), "PBKDF2", false, ["deriveKey"]);
+      const clef = await crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: sel, iterations: TOURS, hash: "SHA-256" },
+        matiere,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+      );
+      const clair = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, clef, secret);
+      return new TextDecoder().decode(clair);
+    }
+
+    async function entrer(mot) {
+      erreur.textContent = "";
+      bouton.disabled = true;
+      bouton.textContent = "Ouverture…";
+      let brut;
+      try {
+        brut = await charger();
+      } catch (e) {
+        erreur.textContent = "Ouvre le lien reçu dans WhatsApp.";
+        bouton.disabled = false;
+        bouton.textContent = "Ouvrir";
+        return;
+      }
+      let html;
+      try {
+        html = await dechiffrer(mot, brut);
+      } catch (e) {
+        localStorage.removeItem(CLE);
+        erreur.textContent = "Ce mot de passe n'est pas le bon.";
+        bouton.disabled = false;
+        bouton.textContent = "Ouvrir";
+        champ.focus();
+        return;
+      }
+      localStorage.setItem(CLE, mot);
+      await montrer(html);
+    }
+
+    document.getElementById("porte").addEventListener("submit", (e) => {
+      e.preventDefault();
+      entrer(champ.value);
+    });
+
+    const garde = localStorage.getItem(CLE);
+    if (garde) entrer(garde);
+    else champ.focus();
+  </script>
+</body>
+</html>
