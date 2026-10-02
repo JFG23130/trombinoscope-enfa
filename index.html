@@ -90,7 +90,7 @@
     }
 
     async function charger() {
-      const reponse = await fetch("coffre.bin?v=13");
+      const reponse = await fetch("coffre.bin?v=14");
       if (!reponse.ok) throw new Error("lien");
       return new Uint8Array(await reponse.arrayBuffer());
     }
